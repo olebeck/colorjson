@@ -4,22 +4,14 @@ ColorJSON: The Fast Color JSON Marshaller for Go
 What is this?
 -------------
 
-This package is based heavily on hokaccha/go-prettyjson but has some noticible differences:
- - Over twice as fast (recursive descent serialization uses buffer instead of string concatenation)
-   ```
-   BenchmarkColorJSONMarshall-4     500000      2498 ns/op
-   BenchmarkPrettyJSON-4            200000      6145 ns/op
-   ```
- - more customizable (ability to have zero indent, print raw json strings, etc...)
- - better defaults (less bold colors)
+This package is based heavily on TylerBrock/colorjson but uses direct-to-stream serialisation to a `io.Writer` interface via an internal buffer.
 
-ColorJSON was built in order to produce fast beautiful colorized JSON output for [Saw](http://github.com/TylerBrock/saw).
 
 Installation
 ------------
 
 ```sh
-go get -u github.com/TylerBrock/colorjson
+go get -u github.com/relvacode/colorjson
 ```
 
 Usage
@@ -28,7 +20,7 @@ Usage
 Setup
 
 ```go
-import "github.com/TylerBrock/colorjson"
+import "github.com/relvacode/colorjson"
 
 str := `{
   "str": "foo",
@@ -47,8 +39,8 @@ json.Unmarshal([]byte(str), &obj)
 Vanilla Usage
 
 ```go
-s, _ := colorjson.Marshal(obj)
-fmt.Println(string(s))
+// Use stdout, or any other standard io.Writer interface
+_, err := colorjson.Marshal(os.Stdout, obj)
 ```
 
 Customization (Custom Indent)
@@ -56,6 +48,5 @@ Customization (Custom Indent)
 f := colorjson.NewFormatter()
 f.Indent = 2
 
-s, _ := f.Marshal(v)
-fmt.Println(string(s))
+_, err := f.Marshal(os.Stdout, obj)
 ```

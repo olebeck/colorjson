@@ -1,13 +1,13 @@
 package main
 
 import (
-    "fmt"
-    "github.com/TylerBrock/colorjson"
-    "encoding/json"
+	"encoding/json"
+	"github.com/relvacode/colorjson"
+	"os"
 )
 
 func main() {
-    str := `{
+	str := `{
       "str": "foo",
       "num": 100,
       "bool": false,
@@ -16,15 +16,13 @@ func main() {
       "obj": { "a": 1, "b": 2 }
     }`
 
-    var obj map[string]interface{}
-    json.Unmarshal([]byte(str), &obj)
+	var obj map[string]interface{}
+	json.Unmarshal([]byte(str), &obj)
 
-    // Make a custom formatter with indent set
-    f := colorjson.NewFormatter()
-    f.Indent = 4
+	// Make a custom formatter with indent set
+	f := colorjson.NewFormatter()
+	f.Indent = 4
 
-    // Marshall the Colorized JSON
-    s, _ := f.Marshal(obj)
-    fmt.Println(string(s))
+	// Marshall the Colorized JSON to STDOUT
+	f.Marshal(os.Stdout, obj)
 }
-
