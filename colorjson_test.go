@@ -1,7 +1,10 @@
 package colorjson_test
 
-import "testing"
-import "github.com/TylerBrock/colorjson"
+import (
+	"io/ioutil"
+	"testing"
+)
+import "github.com/relvacode/colorjson"
 import "github.com/hokaccha/go-prettyjson"
 
 func benchmarkMarshall(i int, b *testing.B) {
@@ -13,7 +16,7 @@ func benchmarkMarshall(i int, b *testing.B) {
 
 	// run the Fib function b.N times
 	for n := 0; n < b.N; n++ {
-		colorjson.Marshal(simpleMap)
+		colorjson.Marshal(ioutil.Discard, simpleMap)
 	}
 }
 

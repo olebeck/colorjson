@@ -1,9 +1,10 @@
 package colorjson
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,30 +63,38 @@ func (f *Formatter) sprintColor(c *color.Color, s string) string {
 	return c.SprintFunc()(s)
 }
 
-func (f *Formatter) writeIndent(buf *bytes.Buffer, depth int) {
-	buf.WriteString(strings.Repeat(" ", f.Indent*depth))
+func (f *Formatter) writeIndent(w *bufio.Writer, depth int) (int, error) {
+	return w.WriteString(strings.Repeat(" ", f.Indent*depth))
 }
 
-func (f *Formatter) writeObjSep(buf *bytes.Buffer) {
+func (f *Formatter) writeObjSep(w *bufio.Writer) (int, error) {
 	if f.Indent != 0 {
-		buf.WriteByte('\n')
+		return w.WriteRune('\n')
 	} else {
-		buf.WriteByte(' ')
+		return w.WriteRune(' ')
 	}
 }
 
-func (f *Formatter) Marshal(jsonObj interface{}) ([]byte, error) {
-	buffer := bytes.Buffer{}
-	f.marshalValue(jsonObj, &buffer, initialDepth)
-	return buffer.Bytes(), nil
+func (f *Formatter) Marshal(w io.Writer, jsonObj interface{}) (int, error) {
+	buf := bufio.NewWriter(w)
+	n, err := f.marshalValue(jsonObj, buf, initialDepth)
+	if err != nil {
+		return n, err
+	}
+
+	err = buf.Flush()
+	if err != nil {
+		return n, err
+	}
+
+	return n, nil
 }
 
-func (f *Formatter) marshalMap(m map[string]interface{}, buf *bytes.Buffer, depth int) {
+func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth int) (int, error) {
 	remaining := len(m)
 
 	if remaining == 0 {
-		buf.WriteString(emptyMap)
-		return
+		return w.WriteString(emptyMap)
 	}
 
 	keys := make([]string, 0)
@@ -95,64 +104,169 @@ func (f *Formatter) marshalMap(m map[string]interface{}, buf *bytes.Buffer, dept
 
 	sort.Strings(keys)
 
-	buf.WriteString(startMap)
-	f.writeObjSep(buf)
+	var wr int
+	n, err := w.WriteString(startMap)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	n, err = f.writeObjSep(w)
+	if err != nil {
+		return n, err
+	}
+
+	wr += n
 
 	for _, key := range keys {
-		f.writeIndent(buf, depth+1)
-		buf.WriteString(f.KeyColor.Sprintf("\"%s\": ", key))
-		f.marshalValue(m[key], buf, depth+1)
+		n, err = f.writeIndent(w, depth+1)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
+		n, err = w.WriteString(f.KeyColor.Sprintf("\"%s\": ", key))
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
+		n, err = f.marshalValue(m[key], w, depth+1)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
 		remaining--
 		if remaining != 0 {
-			buf.WriteString(valueSep)
+			n, err = w.WriteString(valueSep)
+			if err != nil {
+				return wr, err
+			}
+
+			wr += n
 		}
-		f.writeObjSep(buf)
+
+		n, err = f.writeObjSep(w)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
 	}
-	f.writeIndent(buf, depth)
-	buf.WriteString(endMap)
+
+	n, err = f.writeIndent(w, depth)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	n, err = w.WriteString(endMap)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	return wr, nil
 }
 
-func (f *Formatter) marshalArray(a []interface{}, buf *bytes.Buffer, depth int) {
+func (f *Formatter) marshalArray(a []interface{}, w *bufio.Writer, depth int) (int, error) {
 	if len(a) == 0 {
-		buf.WriteString(emptyArray)
-		return
+		return w.WriteString(emptyArray)
 	}
 
-	buf.WriteString(startArray)
-	f.writeObjSep(buf)
+	var wr int
+
+	n, err := w.WriteString(startArray)
+	if err != nil {
+		return n, err
+	}
+
+	wr += n
+
+	n, err = f.writeObjSep(w)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
 
 	for i, v := range a {
-		f.writeIndent(buf, depth+1)
-		f.marshalValue(v, buf, depth+1)
-		if i < len(a)-1 {
-			buf.WriteString(valueSep)
+		n, err = f.writeIndent(w, depth)
+		if err != nil {
+			return wr, err
 		}
-		f.writeObjSep(buf)
+
+		wr += n
+
+		n, err = f.marshalValue(v, w, depth+1)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
+		if i < len(a)-1 {
+			n, err = w.WriteString(valueSep)
+			if err != nil {
+				return wr, err
+			}
+
+			wr += n
+		}
+
+		n, err = f.writeObjSep(w)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
 	}
-	f.writeIndent(buf, depth)
-	buf.WriteString(endArray)
+	n, err = f.writeIndent(w, depth)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	n, err = w.WriteString(endMap)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	return wr, nil
 }
 
-func (f *Formatter) marshalValue(val interface{}, buf *bytes.Buffer, depth int) {
+func (f *Formatter) marshalValue(val interface{}, w *bufio.Writer, depth int) (int, error) {
 	switch v := val.(type) {
 	case map[string]interface{}:
-		f.marshalMap(v, buf, depth)
+		return f.marshalMap(v, w, depth)
 	case []interface{}:
-		f.marshalArray(v, buf, depth)
+		return f.marshalArray(v, w, depth)
 	case string:
-		f.marshalString(v, buf)
+		return f.marshalString(v, w)
 	case float64:
-		buf.WriteString(f.sprintColor(f.NumberColor, strconv.FormatFloat(v, 'f', -1, 64)))
+		return w.WriteString(f.sprintColor(f.NumberColor, strconv.FormatFloat(v, 'f', -1, 64)))
 	case bool:
-		buf.WriteString(f.sprintColor(f.BoolColor, (strconv.FormatBool(v))))
+		return w.WriteString(f.sprintColor(f.BoolColor, strconv.FormatBool(v)))
 	case nil:
-		buf.WriteString(f.sprintColor(f.NullColor, null))
+		return w.WriteString(f.sprintColor(f.NullColor, null))
 	case json.Number:
-		buf.WriteString(f.sprintColor(f.NumberColor, v.String()))
+		return w.WriteString(f.sprintColor(f.NumberColor, v.String()))
 	}
+
+	return 0, nil
 }
 
-func (f *Formatter) marshalString(str string, buf *bytes.Buffer) {
+func (f *Formatter) marshalString(str string, w *bufio.Writer) (int, error) {
 	if !f.RawStrings {
 		strBytes, _ := json.Marshal(str)
 		str = string(strBytes)
@@ -162,10 +276,10 @@ func (f *Formatter) marshalString(str string, buf *bytes.Buffer) {
 		str = fmt.Sprintf("%s...", str[0:f.StringMaxLength])
 	}
 
-	buf.WriteString(f.sprintColor(f.StringColor, str))
+	return w.WriteString(f.sprintColor(f.StringColor, str))
 }
 
 // Marshal JSON data with default options
-func Marshal(jsonObj interface{}) ([]byte, error) {
-	return NewFormatter().Marshal(jsonObj)
+func Marshal(w io.Writer, jsonObj interface{}) (int, error) {
+	return NewFormatter().Marshal(w, jsonObj)
 }
