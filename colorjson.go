@@ -24,6 +24,7 @@ const emptyMap = startMap + endMap
 const emptyArray = startArray + endArray
 
 type Formatter struct {
+	Buffer          *bufio.Writer
 	KeyColor        *color.Color
 	StringColor     *color.Color
 	BoolColor       *color.Color
@@ -35,8 +36,9 @@ type Formatter struct {
 	RawStrings      bool
 }
 
-func NewFormatter() *Formatter {
+func NewFormatter(w io.Writer) *Formatter {
 	return &Formatter{
+		Buffer:          bufio.NewWriter(w),
 		KeyColor:        color.New(color.FgWhite),
 		StringColor:     color.New(color.FgGreen),
 		BoolColor:       color.New(color.FgYellow),
@@ -75,14 +77,13 @@ func (f *Formatter) writeObjSep(w *bufio.Writer) (int, error) {
 	}
 }
 
-func (f *Formatter) Marshal(w io.Writer, jsonObj interface{}) (int, error) {
-	buf := bufio.NewWriter(w)
-	n, err := f.marshalValue(jsonObj, buf, initialDepth)
+func (f *Formatter) Marshal(jsonObj interface{}) (int, error) {
+	n, err := f.marshalValue(jsonObj, f.Buffer, initialDepth)
 	if err != nil {
 		return n, err
 	}
 
-	err = buf.Flush()
+	err = f.Buffer.Flush()
 	if err != nil {
 		return n, err
 	}
@@ -281,5 +282,5 @@ func (f *Formatter) marshalString(str string, w *bufio.Writer) (int, error) {
 
 // Marshal JSON data with default options
 func Marshal(w io.Writer, jsonObj interface{}) (int, error) {
-	return NewFormatter().Marshal(w, jsonObj)
+	return NewFormatter(w).Marshal(jsonObj)
 }

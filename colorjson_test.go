@@ -19,5 +19,5 @@ func benchmarkMarshall(i int, b *testing.B) {
 	}
 }
 
-func BenchmarkMarshall(b *testing.B)     { benchmarkMarshall(100, b) }
-func BenchmarkMarshall1k(b *testing.B)   { benchmarkMarshall(1000, b) }
+func BenchmarkMarshall(b *testing.B)   { benchmarkMarshall(100, b) }
+func BenchmarkMarshall1k(b *testing.B) { benchmarkMarshall(1000, b) }
