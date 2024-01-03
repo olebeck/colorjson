@@ -1,5 +1,7 @@
-module github.com/relvacode/colorjson
+module github.com/olebeck/colorjson
 
 go 1.14
 
-require github.com/fatih/color v1.9.0
+require (
+	github.com/gookit/color v1.5.4
+)

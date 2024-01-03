@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
+	"reflect"
 	"strconv"
 	"strings"
 
-	"github.com/fatih/color"
+	"github.com/gookit/color"
+	"github.com/xo/terminfo"
 )
 
 const initialDepth = 0
@@ -25,44 +26,51 @@ const emptyArray = startArray + endArray
 
 type Formatter struct {
 	Buffer          *bufio.Writer
-	KeyColor        *color.Color
-	StringColor     *color.Color
-	BoolColor       *color.Color
-	NumberColor     *color.Color
-	NullColor       *color.Color
+	BackColor       color.PrinterFace
+	KeyColor        color.PrinterFace
+	StringColor     color.PrinterFace
+	BoolColor       color.PrinterFace
+	NumberColor     color.PrinterFace
+	NullColor       color.PrinterFace
 	StringMaxLength int
 	Indent          int
 	DisabledColor   bool
 	RawStrings      bool
 }
 
+func init() {
+	color.ForceSetColorLevel(terminfo.ColorLevelMillions)
+}
+
 func NewFormatter(w io.Writer) *Formatter {
-	return &Formatter{
+	f := &Formatter{
 		Buffer:          bufio.NewWriter(w),
-		KeyColor:        color.New(color.FgWhite),
-		StringColor:     color.New(color.FgGreen),
-		BoolColor:       color.New(color.FgYellow),
-		NumberColor:     color.New(color.FgCyan),
-		NullColor:       color.New(color.FgMagenta),
+		BackColor:       color.FgWhite,
+		KeyColor:        color.C256(250),
+		StringColor:     color.FgGreen,
+		BoolColor:       color.FgYellow,
+		NumberColor:     color.FgCyan,
+		NullColor:       color.FgMagenta,
 		StringMaxLength: 0,
 		DisabledColor:   false,
 		Indent:          0,
 		RawStrings:      false,
 	}
+	return f
 }
 
-func (f *Formatter) sprintfColor(c *color.Color, format string, args ...interface{}) string {
+func (f *Formatter) sprintfColor(c color.PrinterFace, format string, args ...interface{}) string {
 	if f.DisabledColor || c == nil {
 		return fmt.Sprintf(format, args...)
 	}
-	return c.SprintfFunc()(format, args...)
+	return c.Sprintf(format, args...)
 }
 
-func (f *Formatter) sprintColor(c *color.Color, s string) string {
+func (f *Formatter) sprintColor(c color.PrinterFace, s string) string {
 	if f.DisabledColor || c == nil {
 		return fmt.Sprint(s)
 	}
-	return c.SprintFunc()(s)
+	return c.Sprint(s)
 }
 
 func (f *Formatter) writeIndent(w *bufio.Writer, depth int) (int, error) {
@@ -77,36 +85,34 @@ func (f *Formatter) writeObjSep(w *bufio.Writer) (int, error) {
 	}
 }
 
-func (f *Formatter) Marshal(jsonObj interface{}) (int, error) {
-	n, err := f.marshalValue(jsonObj, f.Buffer, initialDepth)
+func (f *Formatter) Encode(jsonObj interface{}) error {
+	if s, ok := jsonObj.(string); ok {
+		f.Buffer.WriteString(s)
+		return f.Buffer.Flush()
+	}
+	_, err := f.marshalValue(reflect.ValueOf(jsonObj), f.Buffer, initialDepth)
 	if err != nil {
-		return n, err
+		return err
 	}
 
 	err = f.Buffer.Flush()
 	if err != nil {
-		return n, err
+		return err
 	}
 
-	return n, nil
+	return nil
 }
 
-func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth int) (int, error) {
-	remaining := len(m)
+func (f *Formatter) marshalStruct(m reflect.Value, w *bufio.Writer, depth int) (int, error) {
+	remaining := m.NumField()
+	t := m.Type()
 
 	if remaining == 0 {
-		return w.WriteString(emptyMap)
+		return w.WriteString(f.sprintColor(f.BackColor, emptyMap))
 	}
-
-	keys := make([]string, 0)
-	for key := range m {
-		keys = append(keys, key)
-	}
-
-	sort.Strings(keys)
 
 	var wr int
-	n, err := w.WriteString(startMap)
+	n, err := w.WriteString(f.sprintColor(f.BackColor, startMap))
 	if err != nil {
 		return wr, err
 	}
@@ -120,7 +126,7 @@ func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth 
 
 	wr += n
 
-	for _, key := range keys {
+	for i := 0; i < m.NumField(); i++ {
 		n, err = f.writeIndent(w, depth+1)
 		if err != nil {
 			return wr, err
@@ -128,14 +134,16 @@ func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth 
 
 		wr += n
 
-		n, err = w.WriteString(f.KeyColor.Sprintf("\"%s\": ", key))
+		keyName := t.Field(i).Name
+
+		n, err = w.WriteString(f.KeyColor.Sprintf("\"%s\": ", keyName))
 		if err != nil {
 			return wr, err
 		}
 
 		wr += n
 
-		n, err = f.marshalValue(m[key], w, depth+1)
+		n, err = f.marshalValue(m.Field(i), w, depth+1)
 		if err != nil {
 			return wr, err
 		}
@@ -144,7 +152,7 @@ func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth 
 
 		remaining--
 		if remaining != 0 {
-			n, err = w.WriteString(valueSep)
+			n, err = w.WriteString(f.sprintColor(f.BackColor, valueSep))
 			if err != nil {
 				return wr, err
 			}
@@ -167,7 +175,7 @@ func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth 
 
 	wr += n
 
-	n, err = w.WriteString(endMap)
+	n, err = w.WriteString(f.sprintColor(f.BackColor, endMap))
 	if err != nil {
 		return wr, err
 	}
@@ -177,14 +185,93 @@ func (f *Formatter) marshalMap(m map[string]interface{}, w *bufio.Writer, depth 
 	return wr, nil
 }
 
-func (f *Formatter) marshalArray(a []interface{}, w *bufio.Writer, depth int) (int, error) {
-	if len(a) == 0 {
-		return w.WriteString(emptyArray)
+func (f *Formatter) marshalMap(m reflect.Value, w *bufio.Writer, depth int) (int, error) {
+	remaining := m.Len()
+
+	if remaining == 0 {
+		return w.WriteString(f.sprintColor(f.BackColor, emptyMap))
+	}
+
+	var wr int
+	n, err := w.WriteString(f.sprintColor(f.BackColor, startMap))
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	n, err = f.writeObjSep(w)
+	if err != nil {
+		return n, err
+	}
+
+	wr += n
+
+	for _, key := range m.MapKeys() {
+		n, err = f.writeIndent(w, depth+1)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
+		n, err = w.WriteString(f.KeyColor.Sprintf("\"%s\": ", key.String()))
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
+		n, err = f.marshalValue(m.MapIndex(key), w, depth+1)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+
+		remaining--
+		if remaining != 0 {
+			n, err = w.WriteString(f.sprintColor(f.BackColor, valueSep))
+			if err != nil {
+				return wr, err
+			}
+
+			wr += n
+		}
+
+		n, err = f.writeObjSep(w)
+		if err != nil {
+			return wr, err
+		}
+
+		wr += n
+	}
+
+	n, err = f.writeIndent(w, depth)
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	n, err = w.WriteString(f.sprintColor(f.BackColor, endMap))
+	if err != nil {
+		return wr, err
+	}
+
+	wr += n
+
+	return wr, nil
+}
+
+func (f *Formatter) marshalArray(a reflect.Value, w *bufio.Writer, depth int) (int, error) {
+	if a.Len() == 0 {
+		return w.WriteString(f.sprintColor(f.BackColor, emptyArray))
 	}
 
 	var wr int
 
-	n, err := w.WriteString(startArray)
+	n, err := w.WriteString(f.sprintColor(f.BackColor, startArray))
 	if err != nil {
 		return n, err
 	}
@@ -198,7 +285,7 @@ func (f *Formatter) marshalArray(a []interface{}, w *bufio.Writer, depth int) (i
 
 	wr += n
 
-	for i, v := range a {
+	for i := 0; i < a.Len(); i++ {
 		n, err = f.writeIndent(w, depth)
 		if err != nil {
 			return wr, err
@@ -206,15 +293,15 @@ func (f *Formatter) marshalArray(a []interface{}, w *bufio.Writer, depth int) (i
 
 		wr += n
 
-		n, err = f.marshalValue(v, w, depth+1)
+		n, err = f.marshalValue(a.Index(i), w, depth+1)
 		if err != nil {
 			return wr, err
 		}
 
 		wr += n
 
-		if i < len(a)-1 {
-			n, err = w.WriteString(valueSep)
+		if i < a.Len()-1 {
+			n, err = w.WriteString(f.sprintColor(f.BackColor, valueSep))
 			if err != nil {
 				return wr, err
 			}
@@ -236,7 +323,7 @@ func (f *Formatter) marshalArray(a []interface{}, w *bufio.Writer, depth int) (i
 
 	wr += n
 
-	n, err = w.WriteString(endMap)
+	n, err = w.WriteString(f.sprintColor(f.BackColor, endArray))
 	if err != nil {
 		return wr, err
 	}
@@ -246,22 +333,33 @@ func (f *Formatter) marshalArray(a []interface{}, w *bufio.Writer, depth int) (i
 	return wr, nil
 }
 
-func (f *Formatter) marshalValue(val interface{}, w *bufio.Writer, depth int) (int, error) {
-	switch v := val.(type) {
-	case map[string]interface{}:
-		return f.marshalMap(v, w, depth)
-	case []interface{}:
-		return f.marshalArray(v, w, depth)
-	case string:
-		return f.marshalString(v, w)
-	case float64:
-		return w.WriteString(f.sprintColor(f.NumberColor, strconv.FormatFloat(v, 'f', -1, 64)))
-	case bool:
-		return w.WriteString(f.sprintColor(f.BoolColor, strconv.FormatBool(v)))
-	case nil:
-		return w.WriteString(f.sprintColor(f.NullColor, null))
-	case json.Number:
-		return w.WriteString(f.sprintColor(f.NumberColor, v.String()))
+func (f *Formatter) marshalValue(val reflect.Value, w *bufio.Writer, depth int) (int, error) {
+	t := reflect.TypeOf(val)
+	if t.Kind() == reflect.Pointer {
+		val = val.Elem()
+	}
+
+	switch val.Kind() {
+	case reflect.Map:
+		return f.marshalMap(val, w, depth)
+	case reflect.Slice:
+		return f.marshalArray(val, w, depth)
+	case reflect.String:
+		return f.marshalString(val.String(), w)
+	case reflect.Float32, reflect.Float64, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		var s string
+		if val.CanFloat() {
+			s = strconv.FormatFloat(val.Float(), 'f', -1, 64)
+		} else if val.CanInt() {
+			s = strconv.FormatInt(val.Int(), 10)
+		}
+		return w.WriteString(f.sprintColor(f.NumberColor, s))
+	case reflect.Bool:
+		return w.WriteString(f.sprintColor(f.BoolColor, strconv.FormatBool(val.Bool())))
+	case reflect.Invalid:
+		return w.WriteString(f.sprintColor(f.NullColor, null)) // nil todo
+	case reflect.Struct:
+		return f.marshalStruct(val, w, depth)
 	}
 
 	return 0, nil
@@ -281,6 +379,6 @@ func (f *Formatter) marshalString(str string, w *bufio.Writer) (int, error) {
 }
 
 // Marshal JSON data with default options
-func Marshal(w io.Writer, jsonObj interface{}) (int, error) {
-	return NewFormatter(w).Marshal(jsonObj)
+func Marshal(w io.Writer, jsonObj interface{}) error {
+	return NewFormatter(w).Encode(jsonObj)
 }
