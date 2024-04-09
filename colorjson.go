@@ -334,12 +334,15 @@ func (f *Formatter) marshalArray(a reflect.Value, w *bufio.Writer, depth int) (i
 }
 
 func (f *Formatter) marshalValue(val reflect.Value, w *bufio.Writer, depth int) (int, error) {
-	t := reflect.TypeOf(val)
-	if t.Kind() == reflect.Pointer {
+	if val.Kind() == reflect.Pointer {
 		val = val.Elem()
 	}
 
-	switch val.Kind() {
+	if val.Kind() == reflect.Interface {
+		val = val.Elem()
+	}
+
+	switch val.Type().Kind() {
 	case reflect.Map:
 		return f.marshalMap(val, w, depth)
 	case reflect.Slice:
